@@ -1,4 +1,4 @@
-# FINAL RENDER SCRIPT (WEB SERVICE + PINGER)
+# FINAL RENDER SCRIPT (WEB SERVICE + PINGER) - V2 Permission Fix
 import time
 import yfinance as yf
 import pandas as pd
@@ -15,16 +15,15 @@ from flask import Flask
 app = Flask(__name__)
 @app.route('/')
 def home():
-    # Return a simple message to show it's working
     return "Bot is alive and running."
 
 def run_web_server():
-    # Run Flask app on port provided by Render, default to 8080
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
 
 # --- FILE FOR SAVING DATA ---
-DATA_DIR = "/var/data"
+# CORRECTED PATH: Render provides a writable directory at /data
+DATA_DIR = "/data" 
 PORTFOLIO_FILE = os.path.join(DATA_DIR, "portfolio_data.json")
 
 # --- BOT CREDENTIALS & SETTINGS ---
@@ -43,7 +42,14 @@ current_analysis = {pair: "Initializing..." for pair in PAIRS}
 # --- PORTFOLIO MANAGEMENT ---
 def load_portfolio():
     if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
+        try:
+            os.makedirs(DATA_DIR)
+            print(f"Created data directory at {DATA_DIR}")
+        except OSError as e:
+            print(f"Error creating directory {DATA_DIR}: {e}")
+            # If we can't create the dir, we can't save, so just run in memory
+            return {'balance': INITIAL_CAPITAL, 'trades': [], 'peak_balance': INITIAL_CAPITAL, 'max_drawdown': 0.0, 'start_time': datetime.now(timezone.utc)}
+            
     try:
         with open(PORTFOLIO_FILE, 'r') as f:
             data = json.load(f)
@@ -55,6 +61,9 @@ def load_portfolio():
         return {'balance': INITIAL_CAPITAL, 'trades': [], 'peak_balance': INITIAL_CAPITAL, 'max_drawdown': 0.0, 'start_time': datetime.now(timezone.utc)}
 
 def save_portfolio():
+    if not os.path.exists(DATA_DIR):
+        print("Cannot save portfolio, data directory does not exist.")
+        return
     with trade_lock:
         data_to_save = portfolio.copy()
         data_to_save['start_time'] = data_to_save['start_time'].isoformat()
@@ -152,7 +161,7 @@ async def check_for_signal(context):
         print("--- Hourly check complete ---")
 
 async def post_init(application):
-    await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot online on Web Service.*")
+    await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot online on Web Service (Permission Fixed).*")
     application.job_queue.run_repeating(check_for_signal, interval=60, first=10)
 
 def run_bot_async():
@@ -174,3 +183,4 @@ if __name__ == "__main__":
 
     print("Starting main bot logic...")
     run_bot_async()
+            

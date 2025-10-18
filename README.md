@@ -1,0 +1,1 @@
+# Gbp_usd-bot

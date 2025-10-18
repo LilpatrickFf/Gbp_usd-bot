@@ -1,4 +1,5 @@
 yfinance
 pandas
-python-telegram-bot
 Flask
+python-telegram-bot[job-queue]
+

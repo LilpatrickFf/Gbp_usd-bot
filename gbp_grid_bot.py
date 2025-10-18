@@ -1,4 +1,4 @@
-# FINAL BOT SCRIPT - V5 (Proactive Heads-Up Alerts)
+# FINAL BOT SCRIPT - V6 (Correct Async & Threading)
 import time
 import yfinance as yf
 import pandas as pd
@@ -39,26 +39,21 @@ portfolio = {
 }
 trade_lock = threading.Lock()
 last_checked_hour = -1
-
-# --- NEW: State tracking for proactive alerts ---
-# This dictionary will hold the detailed analysis status for each pair.
-# It now also tracks if a "heads-up" alert has been sent to avoid spam.
 current_analysis = {pair: {"status": "Initializing...", "alert_sent": False} for pair in PAIRS}
 
-# --- 4. TELEGRAM COMMAND HANDLERS ---
+# --- 4. TELEGRAM COMMAND HANDLERS (Unchanged) ---
 async def start_command(update, context):
-    await update.message.reply_text("Bot Online (v5: Heads-Up Alerts). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
+    await update.message.reply_text("Bot Online (v6: Commands Active). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
 
 async def status_command(update, context):
     uptime_delta = datetime.now(timezone.utc) - portfolio['start_time']
-    await update.message.reply_text(f"✅ *Bot is ONLINE.*\n\nUptime (since last restart): {str(uptime_delta).split('.')[0]}", parse_mode='Markdown')
+    await update.message.reply_text(f"✅ *Bot is ONLINE.*\n\nUptime: {str(uptime_delta).split('.')[0]}", parse_mode='Markdown')
 
 async def stats_command(update, context):
-    # This function is unchanged
     with trade_lock:
         total_trades = len(portfolio['trades']); wins = sum(1 for t in portfolio['trades'] if t['pnl'] > 0)
         win_rate = (wins / total_trades * 100) if total_trades > 0 else 0; total_pnl = portfolio['balance'] - INITIAL_CAPITAL
-        stats_msg = (f"*📊 STATS (Since Last Restart) 📊*\n"
+        stats_msg = (f"*📊 STATS (Since Restart) 📊*\n"
                      f"Balance: ${portfolio['balance']:,.2f} (P/L: ${total_pnl:,.2f})\n"
                      f"Win Rate: {win_rate:.2f}% ({wins}/{total_trades})\n"
                      f"Max Drawdown: {portfolio['max_drawdown']*100:.2f}%\n"
@@ -70,15 +65,13 @@ async def stats_command(update, context):
     await update.message.reply_text(stats_msg, parse_mode='Markdown')
 
 async def analysis_command(update, context):
-    # This command now shows the more detailed status
     message = "*🕵️ Live Market Analysis 🕵️*\n\n"
     for pair, analysis_data in current_analysis.items():
         message += f"*{pair.replace('=X', '')}:* {analysis_data['status']}\n"
     await update.message.reply_text(message, parse_mode='Markdown')
 
-# --- 5. CORE BOT LOGIC ---
+# --- 5. CORE BOT LOGIC (Unchanged) ---
 def update_portfolio(trade):
-    # This function is unchanged
     with trade_lock:
         portfolio['balance'] += trade['pnl']; portfolio['trades'].append(trade); portfolio['peak_balance'] = max(portfolio['peak_balance'], portfolio['balance'])
         peak = portfolio['peak_balance']; current_dd = (peak - portfolio['balance']) / peak if peak > 0 else 0
@@ -94,48 +87,26 @@ async def check_for_signal(context):
             try:
                 h4_data = yf.download(pair, period='5d', interval='4h', progress=False, show_errors=False)
                 h1_data = yf.download(pair, period='5d', interval='1h', progress=False, show_errors=False)
-                
                 if h1_data.empty or len(h1_data) < 2 or h4_data.empty or len(h4_data) < 1:
-                    current_analysis[pair]["status"] = "⌛ Waiting for sufficient market data."
-                    current_analysis[pair]["alert_sent"] = False # Reset alert status
-                    continue
-
+                    current_analysis[pair]["status"] = "⌛ Waiting for data."; current_analysis[pair]["alert_sent"] = False; continue
                 prev_h1, last_h1 = h1_data.iloc[-2], h1_data.iloc[-1]
                 relevant_h4 = h4_data[h4_data.index < last_h1.name].iloc[-1]
                 h4_is_bullish = relevant_h4['Close'] > relevant_h4['Open']
                 h4_trend = "BULLISH" if h4_is_bullish else "BEARISH"
-
-                # Default status: Trend is confirmed, but H1 entry condition is not met yet
-                current_analysis[pair]["status"] = f"🔵 H4 Trend is {h4_trend}. Looking for H1 entry candle."
-                current_analysis[pair]["alert_sent"] = False # Reset alert status
-
+                current_analysis[pair]["status"] = f"🔵 H4 is {h4_trend}. Looking for entry."; current_analysis[pair]["alert_sent"] = False
                 signal_type = None
-                
-                # --- LOGIC FOR THE "HEADS-UP" ALERT ---
-                # Check if the first part of the H1 signal is met (the bearish/bullish entry candle)
                 is_buy_setup = h4_is_bullish and prev_h1['Close'] < prev_h1['Open']
                 is_sell_setup = not h4_is_bullish and prev_h1['Close'] > prev_h1['Open']
-
                 if is_buy_setup:
-                    current_analysis[pair]["status"] = f"🟡 WAITING FOR BUY SIGNAL on {pair.replace('=X','')}. H4 is {h4_trend}. Need current H1 candle to turn bullish and close above previous H1 close."
-                    # If we haven't sent an alert for this setup yet, send one.
+                    current_analysis[pair]["status"] = f"🟡 WAITING FOR BUY on {pair.replace('=X','')}. Need H1 close > {prev_h1['Close']:.5f}"
                     if not current_analysis[pair]["alert_sent"]:
-                        await context.bot.send_message(chat_id=CHAT_ID, text=f" heads-up: A potential BUY setup is forming on *{pair.replace('=X','')}*.", parse_mode='Markdown')
-                        current_analysis[pair]["alert_sent"] = True
-                    # Now check for the actual signal confirmation
-                    if last_h1['Close'] > prev_h1['Close']:
-                        signal_type, entry_price, stop_loss = 'BUY', last_h1['Close'], prev_h1['Low']
-
+                        await context.bot.send_message(chat_id=CHAT_ID, text=f" heads-up: Potential BUY setup on *{pair.replace('=X','')}*.", parse_mode='Markdown'); current_analysis[pair]["alert_sent"] = True
+                    if last_h1['Close'] > prev_h1['Close']: signal_type, entry_price, stop_loss = 'BUY', last_h1['Close'], prev_h1['Low']
                 elif is_sell_setup:
-                    current_analysis[pair]["status"] = f"🟡 WAITING FOR SELL SIGNAL on {pair.replace('=X','')}. H4 is {h4_trend}. Need current H1 candle to turn bearish and close below previous H1 close."
+                    current_analysis[pair]["status"] = f"🟡 WAITING FOR SELL on {pair.replace('=X','')}. Need H1 close < {prev_h1['Close']:.5f}"
                     if not current_analysis[pair]["alert_sent"]:
-                        await context.bot.send_message(chat_id=CHAT_ID, text=f" heads-up: A potential SELL setup is forming on *{pair.replace('=X','')}*.", parse_mode='Markdown')
-                        current_analysis[pair]["alert_sent"] = True
-                    # Now check for the actual signal confirmation
-                    if last_h1['Close'] < prev_h1['Close']:
-                        signal_type, entry_price, stop_loss = 'SELL', last_h1['Close'], prev_h1['High']
-
-                # --- TRADE EXECUTION LOGIC ---
+                        await context.bot.send_message(chat_id=CHAT_ID, text=f" heads-up: Potential SELL setup on *{pair.replace('=X','')}*.", parse_mode='Markdown'); current_analysis[pair]["alert_sent"] = True
+                    if last_h1['Close'] < prev_h1['Close']: signal_type, entry_price, stop_loss = 'SELL', last_h1['Close'], prev_h1['High']
                 if signal_type:
                     current_analysis[pair]["status"] = f"🔥 {signal_type} SIGNAL TRIGGERED! 🔥"
                     risk_distance = abs(entry_price - stop_loss)
@@ -145,34 +116,47 @@ async def check_for_signal(context):
                     trade = {'pair': pair, 'type': signal_type, 'pnl': pnl}; update_portfolio(trade)
                     message = f"🚨 *{signal_type} Signal: {pair.replace('=X','')}*\n\nEntry: `{entry_price:.5f}`\nStop Loss: `{stop_loss:.5f}`\nTake Profit: `{take_profit:.5f}`"
                     await context.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode='Markdown')
-                    current_analysis[pair]["alert_sent"] = False # Reset for the next trade
-            
+                    current_analysis[pair]["alert_sent"] = False
             except Exception as e:
-                current_analysis[pair]["status"] = f"Error: {e}"
-                print(f"Error processing {pair}: {e}")
+                current_analysis[pair]["status"] = f"Error: {e}"; print(f"Error processing {pair}: {e}")
         print("--- Hourly check complete ---")
 
-# --- 6. MAIN APPLICATION SETUP ---
-def main():
-    print("Starting web server in a separate thread...")
-    web_thread = threading.Thread(target=run_web_server)
-    web_thread.daemon = True
-    web_thread.start()
-
+# --- 6. MAIN APPLICATION SETUP (CORRECTED) ---
+async def main():
+    """Sets up and runs the bot application."""
+    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("analysis", analysis_command))
 
+    # Schedule the repeating job
     application.job_queue.run_repeating(check_for_signal, interval=60, first=10)
 
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online (v5: Proactive Alerts Active)*"))
+    # This runs the bot and web server concurrently
+    async with application:
+        print("Starting Telegram bot...")
+        await application.start()
+        await application.updater.start_polling()
 
-    print("Starting Telegram bot polling...")
-    application.run_polling()
+        # Send a startup message
+        await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online & All Systems Go!*")
+
+        # Keep the main thread alive for the web server
+        while True:
+            await asyncio.sleep(3600) # Sleep for an hour
 
 if __name__ == "__main__":
-    main()
+    # Start the web server in a separate thread
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.daemon = True
+    print("Starting web server thread...")
+    web_thread.start()
+
+    # Start the main async bot logic
+    print("Starting main bot logic...")
+    asyncio.run(main())
+    

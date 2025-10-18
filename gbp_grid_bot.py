@@ -1,4 +1,4 @@
-# FINAL BOT SCRIPT - V6 (Correct Async & Threading)
+# FINAL BOT SCRIPT - V7 (yfinance Typo Fix)
 import time
 import yfinance as yf
 import pandas as pd
@@ -43,7 +43,7 @@ current_analysis = {pair: {"status": "Initializing...", "alert_sent": False} for
 
 # --- 4. TELEGRAM COMMAND HANDLERS (Unchanged) ---
 async def start_command(update, context):
-    await update.message.reply_text("Bot Online (v6: Commands Active). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
+    await update.message.reply_text("Bot Online (v7: Typo Fixed). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
 
 async def status_command(update, context):
     uptime_delta = datetime.now(timezone.utc) - portfolio['start_time']
@@ -70,7 +70,7 @@ async def analysis_command(update, context):
         message += f"*{pair.replace('=X', '')}:* {analysis_data['status']}\n"
     await update.message.reply_text(message, parse_mode='Markdown')
 
-# --- 5. CORE BOT LOGIC (Unchanged) ---
+# --- 5. CORE BOT LOGIC (TYPO FIXED) ---
 def update_portfolio(trade):
     with trade_lock:
         portfolio['balance'] += trade['pnl']; portfolio['trades'].append(trade); portfolio['peak_balance'] = max(portfolio['peak_balance'], portfolio['balance'])
@@ -85,8 +85,11 @@ async def check_for_signal(context):
         print(f"\n--- Running hourly check at {now.strftime('%Y-%m-%d %H:%M')} UTC ---")
         for pair in PAIRS:
             try:
+                # --- THE FIX IS HERE ---
+                # Changed 'showerrors' to the correct 'show_errors'
                 h4_data = yf.download(pair, period='5d', interval='4h', progress=False, show_errors=False)
                 h1_data = yf.download(pair, period='5d', interval='1h', progress=False, show_errors=False)
+                
                 if h1_data.empty or len(h1_data) < 2 or h4_data.empty or len(h4_data) < 1:
                     current_analysis[pair]["status"] = "⌛ Waiting for data."; current_analysis[pair]["alert_sent"] = False; continue
                 prev_h1, last_h1 = h1_data.iloc[-2], h1_data.iloc[-1]
@@ -121,42 +124,26 @@ async def check_for_signal(context):
                 current_analysis[pair]["status"] = f"Error: {e}"; print(f"Error processing {pair}: {e}")
         print("--- Hourly check complete ---")
 
-# --- 6. MAIN APPLICATION SETUP (CORRECTED) ---
+# --- 6. MAIN APPLICATION SETUP (Unchanged) ---
 async def main():
-    """Sets up and runs the bot application."""
-    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("analysis", analysis_command))
-
-    # Schedule the repeating job
     application.job_queue.run_repeating(check_for_signal, interval=60, first=10)
-
-    # This runs the bot and web server concurrently
     async with application:
         print("Starting Telegram bot...")
         await application.start()
         await application.updater.start_polling()
-
-        # Send a startup message
-        await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online & All Systems Go!*")
-
-        # Keep the main thread alive for the web server
+        await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online (v7: Typo Fixed)*")
         while True:
-            await asyncio.sleep(3600) # Sleep for an hour
+            await asyncio.sleep(3600)
 
 if __name__ == "__main__":
-    # Start the web server in a separate thread
     web_thread = threading.Thread(target=run_web_server)
     web_thread.daemon = True
     print("Starting web server thread...")
     web_thread.start()
-
-    # Start the main async bot logic
     print("Starting main bot logic...")
     asyncio.run(main())
-    

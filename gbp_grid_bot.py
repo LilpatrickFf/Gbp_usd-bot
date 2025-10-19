@@ -1,4 +1,4 @@
-# FINAL BOT SCRIPT - V7 (yfinance Typo Fix)
+# FINAL BOT SCRIPT - V8 (Forcing Cache Refresh)
 import time
 import yfinance as yf
 import pandas as pd
@@ -41,9 +41,9 @@ trade_lock = threading.Lock()
 last_checked_hour = -1
 current_analysis = {pair: {"status": "Initializing...", "alert_sent": False} for pair in PAIRS}
 
-# --- 4. TELEGRAM COMMAND HANDLERS (Unchanged) ---
+# --- 4. TELEGRAM COMMAND HANDLERS ---
 async def start_command(update, context):
-    await update.message.reply_text("Bot Online (v7: Typo Fixed). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
+    await update.message.reply_text("Bot Online (v8: Final). Commands: /start, /status, /stats, /analysis", parse_mode='Markdown')
 
 async def status_command(update, context):
     uptime_delta = datetime.now(timezone.utc) - portfolio['start_time']
@@ -70,7 +70,7 @@ async def analysis_command(update, context):
         message += f"*{pair.replace('=X', '')}:* {analysis_data['status']}\n"
     await update.message.reply_text(message, parse_mode='Markdown')
 
-# --- 5. CORE BOT LOGIC (TYPO FIXED) ---
+# --- 5. CORE BOT LOGIC ---
 def update_portfolio(trade):
     with trade_lock:
         portfolio['balance'] += trade['pnl']; portfolio['trades'].append(trade); portfolio['peak_balance'] = max(portfolio['peak_balance'], portfolio['balance'])
@@ -85,8 +85,7 @@ async def check_for_signal(context):
         print(f"\n--- Running hourly check at {now.strftime('%Y-%m-%d %H:%M')} UTC ---")
         for pair in PAIRS:
             try:
-                # --- THE FIX IS HERE ---
-                # Changed 'showerrors' to the correct 'show_errors'
+                # Correct parameter: show_errors=False
                 h4_data = yf.download(pair, period='5d', interval='4h', progress=False, show_errors=False)
                 h1_data = yf.download(pair, period='5d', interval='1h', progress=False, show_errors=False)
                 
@@ -124,7 +123,7 @@ async def check_for_signal(context):
                 current_analysis[pair]["status"] = f"Error: {e}"; print(f"Error processing {pair}: {e}")
         print("--- Hourly check complete ---")
 
-# --- 6. MAIN APPLICATION SETUP (Unchanged) ---
+# --- 6. MAIN APPLICATION SETUP ---
 async def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
@@ -136,7 +135,7 @@ async def main():
         print("Starting Telegram bot...")
         await application.start()
         await application.updater.start_polling()
-        await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online (v7: Typo Fixed)*")
+        await application.bot.send_message(chat_id=CHAT_ID, text="✅ *Bot Online (v8: Final)*")
         while True:
             await asyncio.sleep(3600)
 
@@ -147,3 +146,4 @@ if __name__ == "__main__":
     web_thread.start()
     print("Starting main bot logic...")
     asyncio.run(main())
+        

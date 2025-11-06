@@ -1,5 +1,6 @@
-yfinance
+websocket-client
+requests
 pandas
-Flask
-python-telegram-bot[job-queue]
-
+numpy
+scipy
+ta
